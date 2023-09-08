@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Gradescope-Calendar
 // @version     0.0.1
-// @downloadURL https://openuserjs.org/src/scripts/KnowMoreStuff/Oh_Yes!.user.js
+// @downloadURL https://github.com/JohnRamberger/gradescope-calendar-tapermonkey/raw/master/gradescope.user.js
 // @author      John Ramberger
 // @description Add gradescope items to google calendar
 // @match       http*://www.gradescope.com/courses/*
@@ -10,8 +10,6 @@
 // @grant       none
 // @require     https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js
 // ==/UserScript==
-
-// const x = require('https://cdn.jsdelivr.net/npm/ics@3.4.0/dist/defaults.min.js');
 
 /*! ics.js Wed Aug 20 2014 17:23:02 */
 // prettier-ignore
@@ -199,7 +197,6 @@ var numChecked = 0;
   button2.disabled = noneChecked;
   button2.append(span2);
 
-
   flex.append(button);
   flex.append(button2);
 
@@ -233,11 +230,24 @@ var numChecked = 0;
     let formattedDate = now.toISOString().split("T")[0];
     var formattedTime = "";
     if (now.getHours() > 12) {
-      formattedTime = now.getHours() - 12 + "-" + (now.getMinutes()<10?'0':'') + now.getMinutes() + "-PM";
+      formattedTime =
+        now.getHours() -
+        12 +
+        "-" +
+        (now.getMinutes() < 10 ? "0" : "") +
+        now.getMinutes() +
+        "-PM";
     } else {
-      formattedTime = now.getHours() + "-" +  (now.getMinutes()<10?'0':'') + now.getMinutes() + "-AM";
+      formattedTime =
+        now.getHours() +
+        "-" +
+        (now.getMinutes() < 10 ? "0" : "") +
+        now.getMinutes() +
+        "-AM";
     }
-    cal.download("gradescope-calendar--" + formattedDate + "--" + formattedTime);
+    cal.download(
+      "gradescope-calendar--" + formattedDate + "--" + formattedTime
+    );
   });
 
   document.querySelector("#gs-cal-button2").addEventListener("click", (e) => {
@@ -299,8 +309,10 @@ const saveCheckboxState = (checkbox, checked) => {
     assignmentName;
 
   numChecked += checked ? 1 : -1;
-  document.querySelector("#gs-cal-button").disabled = numChecked == 0 && numCheckedOther == 0;
-  document.querySelector("#gs-cal-button2").disabled = numChecked == 0 && numCheckedOther == 0;
+  document.querySelector("#gs-cal-button").disabled =
+    numChecked == 0 && numCheckedOther == 0;
+  document.querySelector("#gs-cal-button2").disabled =
+    numChecked == 0 && numCheckedOther == 0;
 
   sessionStorage.setItem("gs-cal", JSON.stringify(sessionData));
 };
@@ -334,9 +346,10 @@ const saveAllCheckboxState = (checked) => {
   });
 
   numChecked = checked ? boxes.length : 0;
-  document.querySelector("#gs-cal-button").disabled = numChecked == 0 && numCheckedOther == 0;
-  document.querySelector("#gs-cal-button2").disabled = numChecked == 0 && numCheckedOther == 0;
-
+  document.querySelector("#gs-cal-button").disabled =
+    numChecked == 0 && numCheckedOther == 0;
+  document.querySelector("#gs-cal-button2").disabled =
+    numChecked == 0 && numCheckedOther == 0;
 
   sessionStorage.setItem("gs-cal", JSON.stringify(sessionData));
 };
