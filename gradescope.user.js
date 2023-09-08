@@ -8,6 +8,7 @@
 // @run-at      document-idle
 // @icon        https://www.google.com/s2/favicons?sz=64&domain=tampermonkey.net
 // @grant       none
+// @require     https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js
 // ==/UserScript==
 
 // const x = require('https://cdn.jsdelivr.net/npm/ics@3.4.0/dist/defaults.min.js');
@@ -42,7 +43,22 @@ style.innerHTML = `
     clip: unset !important;
     border: unset !important;
   }
+  .gs-cal-button {
+    width: fit-content !important;
+    margin-top: 10px !important;
+  }
+  .courseHeader--cal-flex {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 10px !important;
+  }
 `;
+
+var courseNumber;
+var courseName;
+var courseNameClean;
+var numCheckedOther = 0;
+var numChecked = 0;
 
 (function () {
   "use strict";
@@ -56,46 +72,68 @@ style.innerHTML = `
   // add css
   document.body.appendChild(style);
 
-  let courseName = document.querySelector(`.courseHeader--title`).textContent;
-  let courseNameClean = courseName.replace(/\s/g, "-").toLowerCase();
+  // get number from https://www.gradescope.com/courses/582541
+  courseNumber = window.location.href.split("/")[4];
+
+  courseName = document.querySelector(`.courseHeader--title`).textContent;
+  courseNameClean = courseName.replace(/\s/g, "-").toLowerCase();
 
   // INJECTS
 
-  // --------------- Select all checkbox ---------------
-
-  let tableHeader = document.querySelector(
-    "#assignments-student-table > thead:nth-child(2) > tr:nth-child(1)"
-  );
-
-  let tableHeaderCheckbox = document.createElement("th");
-  tableHeaderCheckbox.style.minWidth = "100px";
-  let tableHeaderCheckboxInput = document.createElement("input");
-  tableHeaderCheckboxInput.type = "checkbox";
-  tableHeaderCheckboxInput.classList.add("th-checkbox");
-  tableHeaderCheckboxInput.id = "th-checkbox";
-  tableHeaderCheckbox.appendChild(tableHeaderCheckboxInput);
-
-  let tableHeaderCheckboxLabel = document.createElement("label");
-  tableHeaderCheckboxLabel.setAttribute("for", "th-checkbox");
-  tableHeaderCheckboxLabel.textContent = " Select All";
-  tableHeaderCheckbox.append(tableHeaderCheckboxLabel);
-
-  tableHeader.prepend(tableHeaderCheckbox);
+  let startState = JSON.parse(sessionStorage.getItem("gs-cal"));
+  if (!startState) {
+    startState = {};
+  }
+  if (!startState[courseNumber]) {
+    startState[courseNumber] = {};
+  }
 
   // --------------- Select assignment checkbox ---------------
 
   let tableRows = document.querySelectorAll("tbody > tr:nth-child(n)");
 
+  let allChecked = true;
+  let noneChecked = true;
+
   for (let tableRow of tableRows) {
     let th = tableRow.querySelector("th");
     let assignmentName = th.textContent;
-    let checkboxId =
-      courseNameClean + "-" + assignmentName.replace(/\s/g, "-").toLowerCase();
+    let assignmentNameClean = assignmentName.replace(/\s/g, "-").toLowerCase();
+
+    let assignmentState = startState[courseNumber][assignmentNameClean];
+    if (!assignmentState) {
+      assignmentState = {};
+    }
+    let initialChecked = assignmentState["checked"] || false;
+    allChecked = allChecked && initialChecked;
+    let checkboxId = courseNameClean + "-" + assignmentNameClean;
+
+    let lastTd = tableRow.querySelector("td:last-child");
+    let dueDateE = lastTd.querySelector("time.submissionTimeChart--dueDate");
+    let dueDate = dueDateE.getAttribute("datetime");
+    // dueDate:"2023-09-09 23:59:00 -0400"
+    let dueDateObj = moment(dueDate, "YYYY-MM-DD HH:mm:ss Z");
+    // format like 8/7/2013 5:30 pm
+    let dueDateOut = dueDateObj.format("MM/DD/YYYY hh:mm a");
 
     let tableRowCheckbox = document.createElement("td");
     let tableRowCheckboxInput = document.createElement("input");
     tableRowCheckboxInput.type = "checkbox";
+    tableRowCheckboxInput.checked = initialChecked;
     tableRowCheckboxInput.classList.add("th-checkbox");
+    tableRowCheckboxInput.classList.add("assignment-checkbox-jr");
+    tableRowCheckboxInput.setAttribute("data-assignment-name", assignmentName);
+    tableRowCheckboxInput.setAttribute(
+      "data-assignment-clean",
+      assignmentNameClean
+    );
+    tableRowCheckboxInput.setAttribute("data-course-name", courseName);
+    tableRowCheckboxInput.setAttribute(
+      "data-course-name-clean",
+      courseNameClean
+    );
+    tableRowCheckboxInput.setAttribute("data-course-number", courseNumber);
+    tableRowCheckboxInput.setAttribute("data-due-date", dueDateOut);
 
     tableRowCheckboxInput.id = checkboxId;
     tableRowCheckbox.appendChild(tableRowCheckboxInput);
@@ -107,4 +145,198 @@ style.innerHTML = `
 
     tableRow.prepend(tableRowCheckbox.cloneNode(true));
   }
+
+  document.querySelectorAll(".assignment-checkbox-jr").forEach((checkbox) => {
+    checkbox.addEventListener("change", (e) => {
+      // save to session storage
+      let checked = e.target.checked;
+      saveCheckboxState(checkbox, checked);
+    });
+  });
+
+  // --------------- Add to calendar button ---------------
+  // Check if other courses have any checked & update noneChecked
+  Object.keys(startState).forEach((i_courseNum) => {
+    Object.keys(startState[i_courseNum]).forEach((i_assignmentNameClean) => {
+      let i_assignmentState = startState[i_courseNum][i_assignmentNameClean];
+      if (!i_assignmentState) {
+        i_assignmentState = {};
+      }
+      let i_initialChecked = i_assignmentState["checked"] || false;
+      noneChecked = noneChecked && !i_initialChecked;
+      if (i_courseNum == courseNumber) {
+        numChecked += i_initialChecked ? 1 : 0;
+      } else {
+        numCheckedOther += i_initialChecked ? 1 : 0;
+      }
+    });
+  });
+
+  let header = document.querySelector(".courseHeader");
+
+  let flex = document.createElement("div");
+  flex.classList.add("courseHeader--cal-flex");
+
+  let span = document.createElement("span");
+  span.textContent = "Create calendar file (across all courses)";
+
+  let span2 = document.createElement("span");
+  span2.textContent = "Remove all selected (across all courses)";
+
+  let button = document.createElement("button");
+  button.classList.add("tiiBtn");
+  button.classList.add("tiiBtn-primary");
+  button.classList.add("gs-cal-button");
+  button.id = "gs-cal-button";
+  button.disabled = noneChecked;
+  button.append(span);
+
+  let button2 = document.createElement("button");
+  button2.classList.add("tiiBtn");
+  button2.classList.add("tiiBtn-secondary");
+  button2.classList.add("gs-cal-button");
+  button2.id = "gs-cal-button2";
+  button2.disabled = noneChecked;
+  button2.append(span2);
+
+
+  flex.append(button);
+  flex.append(button2);
+
+  header.append(flex);
+
+  document.querySelector("#gs-cal-button").addEventListener("click", (e) => {
+    let cal = ics();
+    Object.keys(startState).forEach((i_courseNum) => {
+      Object.keys(startState[i_courseNum]).forEach((i_assignmentNameClean) => {
+        let i_assignmentState = startState[i_courseNum][i_assignmentNameClean];
+        if (!i_assignmentState) {
+          i_assignmentState = {};
+        }
+        let i_initialChecked = i_assignmentState["checked"] || false;
+        if (i_initialChecked) {
+          let i_courseName = i_assignmentState["courseName"];
+          let i_dueDate = i_assignmentState["dueDate"];
+          let i_assignmentName = i_assignmentState["assignmentName"];
+          cal.addEvent(
+            `GS: ${i_assignmentName} [${i_courseName}]`,
+            `Course: ${i_courseName}\\nAssignment: ${i_assignmentName}\\nDueDate: ${i_dueDate}`,
+            `https://www.gradescope.com/courses/${i_courseNum}`,
+            i_dueDate.split(" ")[0],
+            i_dueDate.split(" ")[0]
+          );
+        }
+      });
+    });
+    let now = new Date();
+    // format to YYYY-MM-DD--HH-mm
+    let formattedDate = now.toISOString().split("T")[0];
+    var formattedTime = "";
+    if (now.getHours() > 12) {
+      formattedTime = now.getHours() - 12 + "-" + (now.getMinutes()<10?'0':'') + now.getMinutes() + "-PM";
+    } else {
+      formattedTime = now.getHours() + "-" +  (now.getMinutes()<10?'0':'') + now.getMinutes() + "-AM";
+    }
+    cal.download("gradescope-calendar--" + formattedDate + "--" + formattedTime);
+  });
+
+  document.querySelector("#gs-cal-button2").addEventListener("click", (e) => {
+    sessionStorage.removeItem("gs-cal");
+    location.reload();
+  });
+
+  // --------------- Select all checkbox ---------------
+
+  let tableHeader = document.querySelector(
+    "#assignments-student-table > thead:nth-child(2) > tr:nth-child(1)"
+  );
+
+  let tableHeaderCheckbox = document.createElement("th");
+  tableHeaderCheckbox.style.minWidth = "100px";
+  let tableHeaderCheckboxInput = document.createElement("input");
+  tableHeaderCheckboxInput.type = "checkbox";
+  tableHeaderCheckboxInput.checked = allChecked;
+  tableHeaderCheckboxInput.classList.add("th-checkbox");
+  tableHeaderCheckboxInput.id = "th-checkbox";
+  tableHeaderCheckbox.appendChild(tableHeaderCheckboxInput);
+
+  let tableHeaderCheckboxLabel = document.createElement("label");
+  tableHeaderCheckboxLabel.setAttribute("for", "th-checkbox");
+  tableHeaderCheckboxLabel.textContent = " Select All";
+  tableHeaderCheckbox.append(tableHeaderCheckboxLabel);
+
+  tableHeader.prepend(tableHeaderCheckbox);
+
+  document.querySelector("#th-checkbox").addEventListener("change", (e) => {
+    let checked = e.target.checked;
+    saveAllCheckboxState(checked);
+  });
 })();
+
+const saveCheckboxState = (checkbox, checked) => {
+  let sessionData = sessionStorage.getItem("gs-cal");
+  if (!sessionData) {
+    sessionData = { courseNumber: {} };
+  } else {
+    sessionData = JSON.parse(sessionData);
+  }
+  checkbox.checked = checked;
+  let c_assignmentNameClean = checkbox.getAttribute(`data-assignment-clean`);
+  let courseName = checkbox.getAttribute(`data-course-name`);
+  let dueDate = checkbox.getAttribute(`data-due-date`);
+  let assignmentName = checkbox.getAttribute(`data-assignment-name`);
+
+  if (!sessionData[courseNumber]) {
+    sessionData[courseNumber] = {};
+  }
+  if (!sessionData[courseNumber][c_assignmentNameClean]) {
+    sessionData[courseNumber][c_assignmentNameClean] = {};
+  }
+  sessionData[courseNumber][c_assignmentNameClean]["checked"] = checked;
+  sessionData[courseNumber][c_assignmentNameClean]["courseName"] = courseName;
+  sessionData[courseNumber][c_assignmentNameClean]["dueDate"] = dueDate;
+  sessionData[courseNumber][c_assignmentNameClean]["assignmentName"] =
+    assignmentName;
+
+  numChecked += checked ? 1 : -1;
+  document.querySelector("#gs-cal-button").disabled = numChecked == 0 && numCheckedOther == 0;
+  document.querySelector("#gs-cal-button2").disabled = numChecked == 0 && numCheckedOther == 0;
+
+  sessionStorage.setItem("gs-cal", JSON.stringify(sessionData));
+};
+
+const saveAllCheckboxState = (checked) => {
+  let boxes = document.querySelectorAll(".assignment-checkbox-jr");
+  let sessionData = sessionStorage.getItem("gs-cal");
+  if (!sessionData) {
+    sessionData = { courseNumber: {} };
+  } else {
+    sessionData = JSON.parse(sessionData);
+  }
+  boxes.forEach((checkbox) => {
+    checkbox.checked = checked;
+    let c_assignmentNameClean = checkbox.getAttribute(`data-assignment-clean`);
+    let courseName = checkbox.getAttribute(`data-course-name`);
+    let dueDate = checkbox.getAttribute(`data-due-date`);
+    let assignmentName = checkbox.getAttribute(`data-assignment-name`);
+
+    if (!sessionData[courseNumber]) {
+      sessionData[courseNumber] = {};
+    }
+    if (!sessionData[courseNumber][c_assignmentNameClean]) {
+      sessionData[courseNumber][c_assignmentNameClean] = {};
+    }
+    sessionData[courseNumber][c_assignmentNameClean]["checked"] = checked;
+    sessionData[courseNumber][c_assignmentNameClean]["courseName"] = courseName;
+    sessionData[courseNumber][c_assignmentNameClean]["dueDate"] = dueDate;
+    sessionData[courseNumber][c_assignmentNameClean]["assignmentName"] =
+      assignmentName;
+  });
+
+  numChecked = checked ? boxes.length : 0;
+  document.querySelector("#gs-cal-button").disabled = numChecked == 0 && numCheckedOther == 0;
+  document.querySelector("#gs-cal-button2").disabled = numChecked == 0 && numCheckedOther == 0;
+
+
+  sessionStorage.setItem("gs-cal", JSON.stringify(sessionData));
+};
