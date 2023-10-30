@@ -1,2 +1,2 @@
-# gradescope-calendar-tapermonkey
+# gradescope-calendar-tampermonkey
  
